@@ -7,10 +7,14 @@ local M = {}
 ---@return string[]
 function M.build(prompt, opts)
 	opts = opts or {}
-	local args = { "-p" }
+	local args = {}
 
-	if prompt and prompt ~= "" then
-		table.insert(args, prompt)
+	-- Streaming mode: use --input-format stream-json, prompt goes to stdin
+	-- Non-streaming mode: use --print -- prompt
+	if opts.streaming_mode then
+		vim.list_extend(args, { "--input-format", "stream-json" })
+	elseif prompt and prompt ~= "" then
+		vim.list_extend(args, { "--print", "--", prompt })
 	end
 
 	if opts.format and opts.format ~= "" then

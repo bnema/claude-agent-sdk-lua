@@ -267,6 +267,7 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 	stream_opts.format = "stream-json"
 	stream_opts.verbose = true
 	stream_opts.include_partial_messages = true
+	stream_opts.streaming_mode = true -- Use bidirectional streaming via stdin
 	local plugin_manager = stream_opts.plugin_manager
 	local tracker = resolve_budget_tracker(stream_opts)
 	local last_cost = nil
@@ -280,7 +281,8 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 		return nil
 	end
 
-	local cmd_args = vim.list_extend({ self.bin_path }, args_builder.build(prompt or "", stream_opts))
+	local cmd_args = args_builder.build(prompt or "", stream_opts)
+	local stdin = vim.loop.new_pipe(false)
 	local stdout = vim.loop.new_pipe(false)
 	local stderr = vim.loop.new_pipe(false)
 	local stderr_buf = {}
@@ -369,9 +371,10 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 		self.bin_path,
 		{
 			args = cmd_args,
-			stdio = { nil, stdout, stderr },
+			stdio = { stdin, stdout, stderr },
 		},
 		vim.schedule_wrap(function(code)
+			close_pipe(stdin)
 			close_pipe(stdout)
 			close_pipe(stderr)
 
@@ -410,10 +413,27 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 
 	if not handle then
 		on_error(errors.new(errors.ErrorType.command, "failed to start claude process"))
+		close_pipe(stdin)
 		close_pipe(stdout)
 		close_pipe(stderr)
 		return nil
 	end
+
+	-- Write prompt to stdin as JSON (bidirectional streaming protocol)
+	local query_message = vim.json.encode({
+		type = "user",
+		message = {
+			role = "user",
+			content = prompt or "",
+		},
+	}) .. "\n"
+	stdin:write(query_message, function(write_err)
+		if write_err then
+			on_error(errors.new(errors.ErrorType.network, "failed to write to stdin", nil, { error = write_err }))
+		end
+		-- Note: Keep stdin open for potential bidirectional communication
+		-- Close it only when we want to signal end of input
+	end)
 
 	stdout:read_start(function(read_err, chunk)
 		if read_err then
@@ -436,8 +456,16 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 
 	return {
 		stop = function()
+			close_pipe(stdin)
 			if handle and not handle:is_closing() then
 				handle:kill("sigterm")
+			end
+		end,
+		-- Expose stdin for bidirectional communication
+		write = function(msg)
+			if stdin and not stdin:is_closing() then
+				local json_msg = vim.json.encode(msg) .. "\n"
+				stdin:write(json_msg)
 			end
 		end,
 	}
