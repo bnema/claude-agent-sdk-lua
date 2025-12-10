@@ -21,13 +21,19 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 }
 ```
 
-## Quick Start
+## Quick Start (plugin authors)
 
 ```lua
 local claude = require("claude-code")
 
--- Create a client
-local client = claude.setup({ bin_path = "claude" })
+-- Create one client and share it across your plugin
+local client = claude.setup({
+  bin_path = "claude",          -- or absolute path
+  default_options = {
+    mcp_config_path = "/path/to/mcp.json",
+    permission_mode = "default", -- or "acceptEdits"
+  },
+})
 
 -- Synchronous call
 local result, err = client:run_prompt("Hello!", { format = "json" })
@@ -51,18 +57,9 @@ client:stream_prompt("Build a function", {},
   function() print("Done!") end
 )
 
--- Subagents
-local subagents = claude.new_subagent_manager(client)
-subagents:register("security", claude.security_reviewer_agent())
-local res = subagents:run("security", "Audit the auth flow")
-print(res and res.result)
-
--- Dangerous client (guarded)
-local dangerous, derr = claude.new_dangerous_client("claude")
-if dangerous then
-  dangerous:enable_mcp_debug()
-  dangerous:bypass_all_permissions("Do the risky thing", { max_turns = 1 })
-end
+-- Permissions
+local cb = claude.safe_bash_callback({ "rm", "shutdown" })
+client:run_prompt("Run this shell cmd", { permission_callback = cb })
 ```
 
 ## Features
@@ -75,6 +72,16 @@ end
 - Subagent management
 - Guarded dangerous client for bypassing permissions
 - Full LuaLS type annotations
+
+## Plugin author guide
+
+- **Create one client**: Build it in your setup and reuse to avoid extra CLI startup.
+- **Async-first**: Prefer `run_prompt_async` or `stream_prompt` to keep UI responsive.
+- **Permissions**: Pass `permission_mode` and `permission_callback` to enforce your plugin’s policy. Built-ins cover read-only, safe bash, and path allowlists.
+- **Budget**: Attach `budget_tracker` or `max_budget_usd` to avoid runaway costs.
+- **Plugins**: Use `new_plugin_manager()` to register logging/metrics/audit or a tool filter and pass it via `{ plugin_manager = ... }`.
+- **Subagents**: Register presets like `claude.security_reviewer_agent()` and call `subagents:run("security", prompt)` when you need specialized reviews.
+- **Dangerous client (opt-in)**: Only when `CLAUDE_ENABLE_DANGEROUS=i-accept-all-risks` and not in production. Use `new_dangerous_client()` to bypass permissions or inject env vars—never with untrusted input.
 
 ## Plugins
 
