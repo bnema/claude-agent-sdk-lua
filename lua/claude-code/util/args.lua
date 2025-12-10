@@ -25,8 +25,13 @@ function M.build(prompt, opts)
 		vim.list_extend(args, { "--append-system-prompt", opts.append_prompt })
 	end
 
-	if opts.mcp_config_path and opts.mcp_config_path ~= "" then
-		vim.list_extend(args, { "--mcp-config", opts.mcp_config_path })
+	local mcp_config = opts.mcp_config or opts.mcp_config_path
+	if mcp_config and mcp_config ~= "" then
+		if type(mcp_config) == "table" then
+			vim.list_extend(args, { "--mcp-config", vim.json.encode(mcp_config) })
+		else
+			vim.list_extend(args, { "--mcp-config", mcp_config })
+		end
 	end
 
 	if opts.allowed_tools and #opts.allowed_tools > 0 then
@@ -43,6 +48,14 @@ function M.build(prompt, opts)
 
 	if opts.permission_mode and opts.permission_mode ~= "" then
 		vim.list_extend(args, { "--permission-mode", opts.permission_mode })
+	end
+
+	if opts.session_id and opts.session_id ~= "" then
+		vim.list_extend(args, { "--session-id", opts.session_id })
+	end
+
+	if opts.fork_session then
+		table.insert(args, "--fork-session")
 	end
 
 	if opts.resume_id and opts.resume_id ~= "" then
@@ -65,8 +78,48 @@ function M.build(prompt, opts)
 		vim.list_extend(args, { "--model", opts.model })
 	end
 
+	if opts.fallback_model and opts.fallback_model ~= "" then
+		vim.list_extend(args, { "--fallback-model", opts.fallback_model })
+	end
+
+	if opts.betas and #opts.betas > 0 then
+		vim.list_extend(args, { "--betas", table.concat(opts.betas, ",") })
+	end
+
 	if opts.config_file and opts.config_file ~= "" then
 		vim.list_extend(args, { "--config", opts.config_file })
+	end
+
+	if opts.settings then
+		local value = opts.settings
+		if type(value) == "table" then
+			value = vim.json.encode(value)
+		end
+		vim.list_extend(args, { "--settings", value })
+	end
+
+	if opts.add_dirs and #opts.add_dirs > 0 then
+		for _, dir in ipairs(opts.add_dirs) do
+			vim.list_extend(args, { "--add-dir", dir })
+		end
+	end
+
+	if opts.setting_sources and #opts.setting_sources > 0 then
+		vim.list_extend(args, { "--setting-sources", table.concat(opts.setting_sources, ",") })
+	end
+
+	if opts.plugins and #opts.plugins > 0 then
+		for _, plugin_dir in ipairs(opts.plugins) do
+			vim.list_extend(args, { "--plugin-dir", plugin_dir })
+		end
+	end
+
+	if opts.agents and next(opts.agents) ~= nil then
+		vim.list_extend(args, { "--agents", vim.json.encode(opts.agents) })
+	end
+
+	if opts.max_thinking_tokens then
+		vim.list_extend(args, { "--max-thinking-tokens", tostring(opts.max_thinking_tokens) })
 	end
 
 	if opts.help then

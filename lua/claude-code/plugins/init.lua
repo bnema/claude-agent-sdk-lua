@@ -141,6 +141,120 @@ function PluginManager:on_tool_call(tool_name, input)
 end
 
 ---@return boolean, string|nil
+function PluginManager:on_pre_tool_use(tool_name, input, ctx)
+	local ok, err = ensure_initialized(self)
+	if not ok then
+		return false, err
+	end
+
+	for _, entry in ipairs(self.plugins) do
+		if entry.config.enabled then
+			ok, err = call_plugin(entry, "on_pre_tool_use", tool_name, input, ctx)
+			if not ok then
+				return false, err
+			end
+		end
+	end
+
+	return true, nil
+end
+
+---@return boolean, string|nil
+function PluginManager:on_post_tool_use(tool_name, input, response, ctx)
+	local ok, err = ensure_initialized(self)
+	if not ok then
+		return false, err
+	end
+
+	for _, entry in ipairs(self.plugins) do
+		if entry.config.enabled then
+			ok, err = call_plugin(entry, "on_post_tool_use", tool_name, input, response, ctx)
+			if not ok then
+				return false, err
+			end
+		end
+	end
+
+	return true, nil
+end
+
+---@return boolean, string|nil
+function PluginManager:on_user_prompt_submit(prompt, ctx)
+	local ok, err = ensure_initialized(self)
+	if not ok then
+		return false, err
+	end
+
+	for _, entry in ipairs(self.plugins) do
+		if entry.config.enabled then
+			ok, err = call_plugin(entry, "on_user_prompt_submit", prompt, ctx)
+			if not ok then
+				return false, err
+			end
+		end
+	end
+
+	return true, nil
+end
+
+---@return boolean, string|nil
+function PluginManager:on_stop(ctx)
+	local ok, err = ensure_initialized(self)
+	if not ok then
+		return false, err
+	end
+
+	for _, entry in ipairs(self.plugins) do
+		if entry.config.enabled then
+			ok, err = call_plugin(entry, "on_stop", ctx)
+			if not ok then
+				return false, err
+			end
+		end
+	end
+
+	return true, nil
+end
+
+---@return boolean, string|nil
+function PluginManager:on_subagent_stop(ctx)
+	local ok, err = ensure_initialized(self)
+	if not ok then
+		return false, err
+	end
+
+	for _, entry in ipairs(self.plugins) do
+		if entry.config.enabled then
+			ok, err = call_plugin(entry, "on_subagent_stop", ctx)
+			if not ok then
+				return false, err
+			end
+		end
+	end
+
+	return true, nil
+end
+
+---@return boolean, string|nil
+function PluginManager:on_permission_update(update)
+	local ok, err = ensure_initialized(self)
+	if not ok then
+		return false, err
+	end
+
+	for _, entry in ipairs(self.plugins) do
+		if entry.config.enabled then
+			ok, err = call_plugin(entry, "on_permission_update", update)
+			if not ok then
+				return false, err
+			end
+		end
+	end
+
+	return true, nil
+end
+
+---@return boolean, string|nil
 function PluginManager:on_message(msg)
 	local ok, err = ensure_initialized(self)
 	if not ok then

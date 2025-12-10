@@ -7,6 +7,7 @@ local M = {}
 local DEFAULT_OPTIONS = {
 	format = "text",
 	permission_mode = "default",
+	setting_sources = nil,
 }
 
 local VALID_MODEL_ALIASES = {
@@ -21,8 +22,33 @@ local VALID_PERMISSION_MODES = {
 	bypassPermissions = true,
 }
 
+local VALID_SETTING_SOURCES = {
+	userSettings = true,
+	projectSettings = true,
+	localSettings = true,
+	session = true,
+}
+
 local function validate_mcp_tool_name(tool)
 	return tool:sub(1, 5) == "mcp__" and select(2, tool:gsub("__", "")) >= 2
+end
+
+local function validate_string_list(values, field)
+	if values == nil then
+		return nil
+	end
+
+	if type(values) ~= "table" then
+		return errors.new_validation_error("Value must be an array of strings", field, values)
+	end
+
+	for _, value in ipairs(values) do
+		if type(value) ~= "string" then
+			return errors.new_validation_error("Value must be a string", field, value)
+		end
+	end
+
+	return nil
 end
 
 local function validate_tool_list(tools, field)
@@ -109,6 +135,65 @@ function M.validate(opts)
 		return errors.new_validation_error("Plugin manager must be a table", "plugin_manager", opts.plugin_manager)
 	end
 
+	if opts.session_id and type(opts.session_id) ~= "string" then
+		return errors.new_validation_error("Session ID must be a string", "session_id", opts.session_id)
+	end
+
+	if opts.fallback_model and type(opts.fallback_model) ~= "string" then
+		return errors.new_validation_error("Fallback model must be a string", "fallback_model", opts.fallback_model)
+	end
+
+	local err = validate_string_list(opts.betas, "betas")
+	if err then
+		return err
+	end
+
+	if opts.max_thinking_tokens and opts.max_thinking_tokens < 0 then
+		return errors.new_validation_error(
+			"Max thinking tokens cannot be negative",
+			"max_thinking_tokens",
+			opts.max_thinking_tokens
+		)
+	end
+
+	if opts.settings and type(opts.settings) ~= "string" and type(opts.settings) ~= "table" then
+		return errors.new_validation_error("Settings must be a string path or table", "settings", opts.settings)
+	end
+
+	if opts.add_dirs then
+		err = validate_string_list(opts.add_dirs, "add_dirs")
+		if err then
+			return err
+		end
+	end
+
+	if opts.setting_sources then
+		err = validate_string_list(opts.setting_sources, "setting_sources")
+		if err then
+			return err
+		end
+		for _, source in ipairs(opts.setting_sources) do
+			if not VALID_SETTING_SOURCES[source] then
+				return errors.new_validation_error("Invalid setting source", "setting_sources", source)
+			end
+		end
+	end
+
+	if opts.plugins then
+		err = validate_string_list(opts.plugins, "plugins")
+		if err then
+			return err
+		end
+	end
+
+	if opts.agents and type(opts.agents) ~= "table" then
+		return errors.new_validation_error("Agents must be a table of agent definitions", "agents", opts.agents)
+	end
+
+	if opts.mcp_config and type(opts.mcp_config) ~= "string" and type(opts.mcp_config) ~= "table" then
+		return errors.new_validation_error("MCP config must be a path or table", "mcp_config", opts.mcp_config)
+	end
+
 	if opts.resume_id and opts.resume_id ~= "" then
 		local trimmed = opts.resume_id:gsub("^%s+", ""):gsub("%s+$", "")
 		if trimmed == "" then
@@ -116,7 +201,7 @@ function M.validate(opts)
 		end
 	end
 
-	local err = validate_tool_list(opts.allowed_tools, "allowed_tools")
+	err = validate_tool_list(opts.allowed_tools, "allowed_tools")
 	if err then
 		return err
 	end

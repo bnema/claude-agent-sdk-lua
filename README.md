@@ -31,6 +31,10 @@ local client = claude.setup({
   bin_path = "claude",          -- or absolute path
   default_options = {
     mcp_config_path = "/path/to/mcp.json",
+    settings = { projectSettings = { maxModelDepth = "quick" } },
+    setting_sources = { "userSettings", "projectSettings" },
+    agents = { helper = { instructions = "You summarize responses" } },
+    plugins = { "/path/to/claude-plugins" },
     permission_mode = "default", -- or "acceptEdits"
   },
 })
@@ -60,6 +64,13 @@ client:stream_prompt("Build a function", {},
 -- Permissions
 local cb = claude.safe_bash_callback({ "rm", "shutdown" })
 client:run_prompt("Run this shell cmd", { permission_callback = cb })
+
+-- Continue/resume a session (no history scraping required)
+local first, err = client:run_prompt("Start session", { format = "json" })
+if first and first.session_id then
+  client:continue_conversation("Keep going", { session_id = first.session_id })
+  client:resume_conversation("Return later", first.session_id, { fork_session = true })
+end
 ```
 
 ## Features
@@ -67,11 +78,25 @@ client:run_prompt("Run this shell cmd", { permission_callback = cb })
 - Sync and async prompt execution
 - Real-time streaming support
 - Permission callbacks for tool control
+- Session control: continue/resume/fork, explicit `session_id` selection
 - Budget tracking
 - Plugin system with lifecycle hooks
+- Agents, settings, betas, fallback model, thinking token cap, plugin dirs, structured MCP config
 - Subagent management
 - Guarded dangerous client for bypassing permissions
 - Full LuaLS type annotations
+
+## API Reference
+
+- `setup(opts?)` / `new_client(bin_path?, default_opts?)`: create a client (sync/async/stream) wired to the Claude Code CLI.
+- `OutputFormat` / `PermissionMode`: enums for `format` and `permission_mode` options.
+- `allow/deny/ask`: permission callbacks for deterministic, blocked, or interactive tool control.
+- `read_only_callback` / `safe_bash_callback(cmds)` / `file_path_callback(paths)` / `chain_callbacks(...)`: built-in permission policies.
+- `is_retryable(err)` / `retry_delay(err)`: helpers for handling CLI retryable errors.
+- `new_budget_tracker({ max_budget_usd? })`: track cumulative cost across calls.
+- `new_plugin_manager()` / `PluginManager` / `BasePlugin`: register lifecycle hooks; built-ins include `LoggingPlugin`, `MetricsPlugin`, `AuditPlugin`, `ToolFilterPlugin`.
+- `new_subagent_manager(client)` / `SubagentManager`: manage specialized agents; presets `security_reviewer_agent`, `code_reviewer_agent`, `test_analyst_agent`, `performance_analyst_agent`, `documentation_agent`.
+- `new_dangerous_client(opts?)` / `DangerousClient`: permission-bypassing client guarded by `CLAUDE_ENABLE_DANGEROUS=i-accept-all-risks` and disabled in prod envs.
 
 ## Plugin author guide
 
@@ -79,7 +104,7 @@ client:run_prompt("Run this shell cmd", { permission_callback = cb })
 - **Async-first**: Prefer `run_prompt_async` or `stream_prompt` to keep UI responsive.
 - **Permissions**: Pass `permission_mode` and `permission_callback` to enforce your plugin’s policy. Built-ins cover read-only, safe bash, and path allowlists.
 - **Budget**: Attach `budget_tracker` or `max_budget_usd` to avoid runaway costs.
-- **Plugins**: Use `new_plugin_manager()` to register logging/metrics/audit or a tool filter and pass it via `{ plugin_manager = ... }`.
+- **Plugins**: Use `new_plugin_manager()` to register logging/metrics/audit or a tool filter and pass it via `{ plugin_manager = ... }`. Hooks include `on_pre_tool_use`, `on_post_tool_use`, `on_user_prompt_submit`, `on_stop`, `on_subagent_stop`, `on_permission_update`, `on_tool_call`, `on_message`, `on_complete`.
 - **Subagents**: Register presets like `claude.security_reviewer_agent()` and call `subagents:run("security", prompt)` when you need specialized reviews.
 - **Dangerous client (opt-in)**: Only when `CLAUDE_ENABLE_DANGEROUS=i-accept-all-risks` and not in production. Use `new_dangerous_client()` to bypass permissions or inject env vars—never with untrusted input.
 

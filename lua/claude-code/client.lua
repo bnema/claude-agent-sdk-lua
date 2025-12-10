@@ -113,6 +113,50 @@ local function parse_tool_input(raw)
 	return input
 end
 
+local function handle_hook_event(plugin_manager, msg)
+	if not plugin_manager or not msg then
+		return true
+	end
+
+	local hook_name = msg.hook_event_name or msg.hookEventName
+	if not hook_name then
+		return true
+	end
+
+	local ctx = msg
+	if hook_name == "PreToolUse" then
+		return plugin_manager:on_pre_tool_use(msg.tool_name or "", msg.tool_input or {}, ctx)
+	elseif hook_name == "PostToolUse" then
+		return plugin_manager:on_post_tool_use(msg.tool_name or "", msg.tool_input or {}, msg.tool_response, ctx)
+	elseif hook_name == "UserPromptSubmit" then
+		return plugin_manager:on_user_prompt_submit(msg.prompt or "", ctx)
+	elseif hook_name == "Stop" then
+		return plugin_manager:on_stop(ctx)
+	elseif hook_name == "SubagentStop" then
+		return plugin_manager:on_subagent_stop(ctx)
+	elseif hook_name == "PreCompact" then
+		return plugin_manager:on_message(msg)
+	end
+
+	return true
+end
+
+local function handle_permission_update(plugin_manager, msg)
+	if not plugin_manager or not msg then
+		return true
+	end
+
+	if msg.permission_update or msg.permissionUpdate then
+		return plugin_manager:on_permission_update(msg.permission_update or msg.permissionUpdate)
+	end
+
+	if msg.type == "permission" then
+		return plugin_manager:on_permission_update(msg)
+	end
+
+	return true
+end
+
 local function call_plugin_manager(manager, method, ...)
 	if not manager or type(manager[method]) ~= "function" then
 		return nil
@@ -283,6 +327,18 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 			input.session_id = msg.session_id
 			local ok = invoke_plugin("on_tool_call", msg.tool_name or "", input)
 			if not ok then
+				return
+			end
+		end
+
+		if plugin_manager then
+			local ok = handle_permission_update(plugin_manager, msg)
+			if ok == false then
+				return
+			end
+
+			ok = handle_hook_event(plugin_manager, msg)
+			if ok == false then
 				return
 			end
 		end

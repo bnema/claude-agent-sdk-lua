@@ -33,6 +33,36 @@ function BasePlugin:on_tool_call(_, _)
 	return true
 end
 
+function BasePlugin:on_pre_tool_use(_, _, _)
+	local _ = self
+	return true
+end
+
+function BasePlugin:on_post_tool_use(_, _, _, _)
+	local _ = self
+	return true
+end
+
+function BasePlugin:on_user_prompt_submit(_, _)
+	local _ = self
+	return true
+end
+
+function BasePlugin:on_stop(_)
+	local _ = self
+	return true
+end
+
+function BasePlugin:on_subagent_stop(_)
+	local _ = self
+	return true
+end
+
+function BasePlugin:on_permission_update(_)
+	local _ = self
+	return true
+end
+
 function BasePlugin:on_message(_)
 	local _ = self
 	return true
