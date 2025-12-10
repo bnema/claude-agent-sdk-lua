@@ -1,0 +1,78 @@
+*claude-code-lua.txt*	Claude Code SDK for Neovim
+
+INTRODUCTION						*claude-code-lua*
+    A Lua wrapper around the Claude Code CLI with sync/async execution,
+    streaming, permissions, budget tracking, plugins, subagents, and a
+    guarded dangerous client.
+
+REQUIREMENTS						*claude-code-lua-requirements*
+    - Neovim 0.10+
+    - Claude Code CLI installed and on $PATH (or configure bin_path)
+
+SETUP							*claude-code-lua-setup*
+>
+    local claude = require("claude-code")
+    local client = claude.setup({ bin_path = "claude" })
+<
+
+SYNC CALL						*claude-code-lua-sync*
+>
+    local res, err = client:run_prompt("Hello", { format = "json" })
+    if err then
+      vim.notify(err.message, vim.log.levels.ERROR)
+    end
+<
+
+ASYNC CALL						*claude-code-lua-async*
+>
+    client:run_prompt_async("Explain this file", {}, function(err, res)
+      if res then print(res.result) end
+    end)
+<
+
+STREAMING (partial messages enabled)			*claude-code-lua-stream*
+>
+    client:stream_prompt("Build a func", {},
+      function(msg) print(msg.type) end,   -- on_message
+      function(err) print(err.message) end, -- on_error
+      function() print("done") end           -- on_complete
+    )
+<
+
+PERMISSIONS						*claude-code-lua-permissions*
+    - claude.read_only_callback()
+    - claude.safe_bash_callback({ "rm", "shutdown" })
+    - claude.file_path_callback({ "/project" })
+    - claude.chain_callbacks(cb1, cb2)
+
+BUDGET TRACKING					*claude-code-lua-budget*
+>
+    local tracker = claude.new_budget_tracker({ max_budget_usd = 5 })
+    local res, err = client:run_prompt("...", { budget_tracker = tracker })
+<
+
+PLUGINS						*claude-code-lua-plugins*
+    PluginManager hooks: initialize, on_tool_call, on_message, on_complete,
+    shutdown. Built-ins: LoggingPlugin, MetricsPlugin, AuditPlugin,
+    ToolFilterPlugin.
+
+SUBAGENTS						*claude-code-lua-subagents*
+>
+    local mgr = claude.new_subagent_manager(client)
+    mgr:register("security", claude.security_reviewer_agent())
+    mgr:run("security", "Audit this service", { mcp_config_path = "mcp.json" })
+<
+
+DANGEROUS CLIENT					*claude-code-lua-dangerous*
+    Guarded by CLAUDE_ENABLE_DANGEROUS=i-accept-all-risks and blocked in
+    production envs (NODE_ENV/GO_ENV/LUA_ENV/ENVIRONMENT).
+>
+    local ok, err = claude.new_dangerous_client()
+    local res, derr = ok:bypass_all_permissions("...", { max_turns = 1 })
+<
+
+FORMATTING & LINT					*claude-code-lua-quality*
+    Run stylua lua and luacheck lua/claude-code after changes.
+
+LICENSE						*claude-code-lua-license*
+    MIT

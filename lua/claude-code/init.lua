@@ -35,6 +35,17 @@ M.LoggingPlugin = require("claude-code.plugins.logging")
 M.MetricsPlugin = require("claude-code.plugins.metrics")
 M.AuditPlugin = require("claude-code.plugins.audit")
 M.ToolFilterPlugin = require("claude-code.plugins.filter")
+M.SubagentManager = require("claude-code.subagent").SubagentManager
+M.new_subagent_manager = require("claude-code.subagent").new_manager
+M.security_reviewer_agent = require("claude-code.subagent").security_reviewer
+M.code_reviewer_agent = require("claude-code.subagent").code_reviewer
+M.test_analyst_agent = require("claude-code.subagent").test_analyst
+M.performance_analyst_agent = require("claude-code.subagent").performance_analyst
+M.documentation_agent = require("claude-code.subagent").documentation
+
+-- Dangerous client (guarded by CLAUDE_ENABLE_DANGEROUS=i-accept-all-risks)
+M.DangerousClient = require("claude-code.dangerous").DangerousClient
+M.new_dangerous_client = require("claude-code.dangerous").new
 
 ---@param opts? { bin_path?: string, default_options?: table }
 ---@return table client
