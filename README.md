@@ -1,4 +1,4 @@
-# claude-code-lua
+# claude-agent-sdk-lua
 
 A Lua SDK for the Claude Code CLI, designed for Neovim plugin developers.
 
@@ -13,7 +13,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  "brice/claude-code-lua",
+  "bnema/claude-agent-sdk-lua",
   config = function()
     local claude = require("claude-code")
     -- Your configuration here
