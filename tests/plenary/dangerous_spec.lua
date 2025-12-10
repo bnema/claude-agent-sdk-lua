@@ -21,6 +21,10 @@ describe("DangerousClient", function()
 
 	it("blocks when confirmation flag is missing", function()
 		vim.env.CLAUDE_ENABLE_DANGEROUS = nil
+		vim.env.NODE_ENV = nil
+		vim.env.GO_ENV = nil
+		vim.env.LUA_ENV = nil
+		vim.env.ENVIRONMENT = nil
 		local client, err = dangerous.new("claude")
 		assert.is_nil(client)
 		assert.is_truthy(err:find("i-accept-all-risks"))
