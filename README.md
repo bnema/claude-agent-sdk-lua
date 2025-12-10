@@ -106,11 +106,12 @@ luacheck lua/claude-code
 Unit tests and integration tests are written with plenary:
 
 ```
-# Unit/specs
+# Unit/specs (requires plenary.nvim on runtimepath; set PLENARY_PATH if not packadded)
 nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/plenary"
 
 # Integration (requires Claude CLI in PATH or CLAUDE_CLI_BIN)
-CLAUDE_CLI_BIN=/usr/local/bin/claude nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/plenary"
+PLENARY_PATH=/path/to/plenary.nvim CLAUDE_CLI_BIN=/usr/local/bin/claude \
+  nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/plenary"
 ```
 
 The integration specs will `pending` if the CLI binary is missing so they won’t fail your run.
