@@ -3,6 +3,7 @@
 local args_builder = require("claude-code.util.args")
 local budget = require("claude-code.budget")
 local errors = require("claude-code.errors")
+local history = require("claude-code.history")
 local options = require("claude-code.options")
 local result_parser = require("claude-code.result")
 local json_stream = require("claude-code.util.json")
@@ -504,6 +505,28 @@ function ClaudeClient:continue_conversation(prompt, opts)
 	merged_opts.continue = true
 	merged_opts.resume_id = nil
 	return self:run_prompt(prompt, merged_opts)
+end
+
+---@param session_id string
+---@param prompt string
+---@param opts? table
+---@return table|nil, ClaudeError|nil
+function ClaudeClient:resume_session(session_id, prompt, opts)
+	return self:resume_conversation(prompt, session_id, opts)
+end
+
+---@param opts? { project?: string, limit?: number, claude_dir?: string }
+---@return SessionEntry[]|nil, ClaudeError|nil
+function ClaudeClient:list_sessions(opts)
+	local _ = self -- keep method signature consistent
+	return history.list_sessions(opts)
+end
+
+---@param opts? { project?: string, limit?: number, claude_dir?: string }
+---@param callback fun(sessions: SessionEntry[]|nil, err: ClaudeError|nil)
+function ClaudeClient:list_sessions_async(opts, callback)
+	local _ = self -- keep method signature consistent
+	history.list_sessions_async(opts, callback)
 end
 
 ---@param prompt string

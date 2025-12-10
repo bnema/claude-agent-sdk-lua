@@ -14,6 +14,7 @@ M.PermissionMode = { DEFAULT = "default", ACCEPT_EDITS = "acceptEdits", BYPASS =
 
 M.Client = require("claude-code.client").ClaudeClient
 M.new_client = require("claude-code.client").new
+M.history = require("claude-code.history")
 
 M.is_retryable = require("claude-code.errors").is_retryable
 M.retry_delay = require("claude-code.errors").retry_delay

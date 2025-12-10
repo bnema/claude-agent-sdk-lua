@@ -71,6 +71,19 @@ if first and first.session_id then
   client:continue_conversation("Keep going", { session_id = first.session_id })
   client:resume_conversation("Return later", first.session_id, { fork_session = true })
 end
+
+-- List recent sessions for the current project (from ~/.claude/history.jsonl)
+local sessions = client:list_sessions({ limit = 10 })
+if sessions and sessions[1] then
+  client:resume_session(sessions[1].session_id, "Pick up where we left off")
+end
+
+-- Async listing with summaries populated from session files
+client:list_sessions_async({ limit = 5 }, function(found, list_err)
+  if found and not list_err and found[1] then
+    print(found[1].summary or found[1].display)
+  end
+end)
 ```
 
 ## Features
@@ -84,6 +97,7 @@ end
 - Agents, settings, betas, fallback model, thinking token cap, plugin dirs, structured MCP config
 - Subagent management
 - Guarded dangerous client for bypassing permissions
+- Session history helpers (list/resume recent sessions)
 - Full LuaLS type annotations
 
 ## API Reference
@@ -97,6 +111,7 @@ end
 - `new_plugin_manager()` / `PluginManager` / `BasePlugin`: register lifecycle hooks; built-ins include `LoggingPlugin`, `MetricsPlugin`, `AuditPlugin`, `ToolFilterPlugin`.
 - `new_subagent_manager(client)` / `SubagentManager`: manage specialized agents; presets `security_reviewer_agent`, `code_reviewer_agent`, `test_analyst_agent`, `performance_analyst_agent`, `documentation_agent`.
 - `new_dangerous_client(opts?)` / `DangerousClient`: permission-bypassing client guarded by `CLAUDE_ENABLE_DANGEROUS=i-accept-all-risks` and disabled in prod envs.
+- `history.list_sessions({ project?, limit?, claude_dir? })` / `history.list_sessions_async(opts, cb)`: enumerate recent Claude sessions from `~/.claude/history.jsonl`; defaults to the current working directory. `client:list_sessions` and `client:list_sessions_async` forward to these helpers.
 
 ## Plugin author guide
 
