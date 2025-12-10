@@ -1,0 +1,21 @@
+# Neovim
+.netrwhist
+tags
+
+# Lua
+*.luac
+lua_modules/
+
+# Testing
+.tests/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
