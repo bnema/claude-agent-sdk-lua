@@ -9,16 +9,20 @@ local M = {}
 
 M.VERSION = "0.1.0"
 
--- TODO: Implement core modules
--- M.Client = require("claude-code.client").ClaudeClient
--- M.new_client = require("claude-code.client").new
+M.OutputFormat = { TEXT = "text", JSON = "json", STREAM_JSON = "stream-json" }
+M.PermissionMode = { DEFAULT = "default", ACCEPT_EDITS = "acceptEdits", BYPASS = "bypassPermissions" }
+
+M.Client = require("claude-code.client").ClaudeClient
+M.new_client = require("claude-code.client").new
+
+M.is_retryable = require("claude-code.errors").is_retryable
+M.retry_delay = require("claude-code.errors").retry_delay
 
 ---@param opts? { bin_path?: string, default_options?: table }
 ---@return table client
 function M.setup(opts)
-  opts = opts or {}
-  -- TODO: Implement client creation
-  return {}
+	opts = opts or {}
+	return M.new_client(opts.bin_path, opts.default_options)
 end
 
 return M
