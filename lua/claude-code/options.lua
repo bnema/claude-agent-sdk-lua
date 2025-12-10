@@ -105,6 +105,10 @@ function M.validate(opts)
 		return errors.new_validation_error("Budget tracker must be a table", "budget_tracker", opts.budget_tracker)
 	end
 
+	if opts.plugin_manager and type(opts.plugin_manager) ~= "table" then
+		return errors.new_validation_error("Plugin manager must be a table", "plugin_manager", opts.plugin_manager)
+	end
+
 	if opts.resume_id and opts.resume_id ~= "" then
 		local trimmed = opts.resume_id:gsub("^%s+", ""):gsub("%s+$", "")
 		if trimmed == "" then

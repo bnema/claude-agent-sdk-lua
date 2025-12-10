@@ -81,6 +81,55 @@ local function calculate_retry_delay(policy, attempt, err)
 	return delay
 end
 
+local function plugin_error(message)
+	return errors.new(errors.ErrorType.validation, message or "plugin error")
+end
+
+local function parse_tool_input(raw)
+	local input = { raw = raw or {} }
+	if type(raw) ~= "table" then
+		return input
+	end
+
+	if type(raw.command) == "string" then
+		input.command = raw.command
+	end
+	if type(raw.file_path) == "string" then
+		input.file_path = raw.file_path
+	end
+	if type(raw.pattern) == "string" then
+		input.pattern = raw.pattern
+	end
+	if type(raw.content) == "string" then
+		input.content = raw.content
+	end
+	if type(raw.old_string) == "string" then
+		input.old_string = raw.old_string
+	end
+	if type(raw.new_string) == "string" then
+		input.new_string = raw.new_string
+	end
+
+	return input
+end
+
+local function call_plugin_manager(manager, method, ...)
+	if not manager or type(manager[method]) ~= "function" then
+		return nil
+	end
+
+	local ok, success, err = pcall(manager[method], manager, ...)
+	if not ok then
+		return plugin_error(success)
+	end
+
+	if success == false then
+		return plugin_error(err)
+	end
+
+	return nil
+end
+
 ---@param prompt string
 ---@param opts? table
 ---@return table|nil, ClaudeError|nil
@@ -107,6 +156,11 @@ function ClaudeClient:run_prompt(prompt, opts)
 	local budget_err = apply_budget(tracker, parsed)
 	if budget_err then
 		return nil, budget_err
+	end
+
+	local plugin_err = call_plugin_manager(merged_opts.plugin_manager, "on_complete", parsed)
+	if plugin_err then
+		return nil, plugin_err
 	end
 
 	return parsed, nil
@@ -146,6 +200,12 @@ function ClaudeClient:run_prompt_async(prompt, opts, callback)
 				return
 			end
 
+			local plugin_err = call_plugin_manager(merged_opts.plugin_manager, "on_complete", parsed)
+			if plugin_err then
+				callback(plugin_err, nil)
+				return
+			end
+
 			callback(nil, parsed)
 		end)
 	)
@@ -162,9 +222,12 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 	stream_opts.format = "stream-json"
 	stream_opts.verbose = true
 	stream_opts.include_partial_messages = true
+	local plugin_manager = stream_opts.plugin_manager
 	local tracker = resolve_budget_tracker(stream_opts)
 	local last_cost = nil
 	local last_session_id = nil
+	local last_result_msg = nil
+	local aborted = false
 
 	local err = options.validate(stream_opts)
 	if err then
@@ -176,11 +239,61 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 	local stdout = vim.loop.new_pipe(false)
 	local stderr = vim.loop.new_pipe(false)
 	local stderr_buf = {}
+	local handle
+	local function handle_plugin_error(message)
+		aborted = true
+		on_error(plugin_error(message))
+		if handle and not handle:is_closing() then
+			handle:kill("sigterm")
+		end
+	end
+
+	local function invoke_plugin(method, ...)
+		if not plugin_manager then
+			return true
+		end
+		local ok, success, msg = pcall(plugin_manager[method], plugin_manager, ...)
+		if not ok then
+			handle_plugin_error(success)
+			return false
+		end
+		if success == false then
+			handle_plugin_error(msg or "plugin rejected operation")
+			return false
+		end
+		return true
+	end
+
 	local parser = json_stream.new_line_parser(function(msg)
+		if aborted then
+			return
+		end
+
 		if tracker then
 			last_cost = msg.total_cost_usd or msg.cost_usd or last_cost
 			last_session_id = msg.session_id or last_session_id
 		end
+
+		if msg.result or msg.total_cost_usd then
+			last_result_msg = msg
+		end
+
+		if msg.type == "tool_use" and plugin_manager then
+			local input = parse_tool_input(msg.tool_input or msg.message or {})
+			input.session_id = msg.session_id
+			local ok = invoke_plugin("on_tool_call", msg.tool_name or "", input)
+			if not ok then
+				return
+			end
+		end
+
+		if plugin_manager then
+			local ok = invoke_plugin("on_message", msg)
+			if not ok then
+				return
+			end
+		end
+
 		on_message(msg)
 	end, function(line, decode_err)
 		on_error(errors.new_validation_error("Failed to parse JSON message", "stdout", {
@@ -195,7 +308,6 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 		end
 	end
 
-	local handle
 	handle = vim.loop.spawn(
 		self.bin_path,
 		{
@@ -225,7 +337,17 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 				end
 			end
 
-			on_complete()
+			if not aborted and plugin_manager then
+				local ok, completed, msg = pcall(plugin_manager.on_complete, plugin_manager, last_result_msg)
+				if not ok or completed == false then
+					on_error(plugin_error(msg or completed))
+					return
+				end
+			end
+
+			if not aborted then
+				on_complete()
+			end
 		end)
 	)
 
@@ -295,6 +417,11 @@ function ClaudeClient:run_from_stdin(stdin, prompt, opts)
 	local budget_err = apply_budget(tracker, parsed)
 	if budget_err then
 		return nil, budget_err
+	end
+
+	local plugin_err = call_plugin_manager(merged_opts.plugin_manager, "on_complete", parsed)
+	if plugin_err then
+		return nil, plugin_err
 	end
 
 	return parsed, nil

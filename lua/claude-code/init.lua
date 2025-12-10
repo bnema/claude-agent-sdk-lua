@@ -28,6 +28,13 @@ M.file_path_callback = permissions.file_path_callback
 M.chain_callbacks = permissions.chain_callbacks
 
 M.new_budget_tracker = require("claude-code.budget").new
+M.new_plugin_manager = require("claude-code.plugins").new
+M.PluginManager = require("claude-code.plugins").PluginManager
+M.BasePlugin = require("claude-code.plugins.base")
+M.LoggingPlugin = require("claude-code.plugins.logging")
+M.MetricsPlugin = require("claude-code.plugins.metrics")
+M.AuditPlugin = require("claude-code.plugins.audit")
+M.ToolFilterPlugin = require("claude-code.plugins.filter")
 
 ---@param opts? { bin_path?: string, default_options?: table }
 ---@return table client
