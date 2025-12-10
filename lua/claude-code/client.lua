@@ -1,10 +1,18 @@
 -- luacheck: globals vim
 
 local args_builder = require("claude-code.util.args")
+local budget = require("claude-code.budget")
 local errors = require("claude-code.errors")
 local options = require("claude-code.options")
 local result_parser = require("claude-code.result")
 local json_stream = require("claude-code.util.json")
+
+local DEFAULT_RETRY_POLICY = {
+	max_retries = 3,
+	base_delay_ms = 100,
+	max_delay_ms = 5000,
+	backoff_factor = 2.0,
+}
 
 ---@class ClaudeClient
 ---@field bin_path string
@@ -20,6 +28,57 @@ local function new(bin_path, default_options)
 		bin_path = bin_path or "claude",
 		default_options = options.normalize(default_options),
 	}, ClaudeClient)
+end
+
+local function resolve_budget_tracker(opts)
+	if opts.budget_tracker then
+		return opts.budget_tracker
+	end
+
+	if opts.max_budget_usd and opts.max_budget_usd > 0 then
+		return budget.new({ max_budget_usd = opts.max_budget_usd })
+	end
+
+	return nil
+end
+
+local function apply_budget(tracker, res)
+	if not tracker or not res then
+		return nil
+	end
+
+	local cost = res.total_cost_usd or res.cost_usd
+	if not cost or cost <= 0 then
+		return nil
+	end
+
+	local ok, budget_err = tracker:add_spend(res.session_id or "default", cost)
+	if not ok then
+		return errors.new(errors.ErrorType.validation, budget_err or "Budget exceeded", nil, {
+			max_budget_usd = tracker.config.max_budget_usd,
+			current_spend = tracker:total(),
+		})
+	end
+
+	return nil
+end
+
+local function calculate_retry_delay(policy, attempt, err)
+	if attempt == 0 then
+		return 0
+	end
+
+	local delay = policy.base_delay_ms * (policy.backoff_factor ^ (attempt - 1))
+	if delay > policy.max_delay_ms then
+		delay = policy.max_delay_ms
+	end
+
+	local retry_after = errors.retry_delay(err)
+	if retry_after and retry_after > 0 then
+		delay = math.max(delay, retry_after * 1000)
+	end
+
+	return delay
 end
 
 ---@param prompt string
@@ -42,6 +101,12 @@ function ClaudeClient:run_prompt(prompt, opts)
 	local parsed, parse_err = result_parser.parse(result.stdout or "", merged_opts.format)
 	if parse_err then
 		return nil, parse_err
+	end
+
+	local tracker = resolve_budget_tracker(merged_opts)
+	local budget_err = apply_budget(tracker, parsed)
+	if budget_err then
+		return nil, budget_err
 	end
 
 	return parsed, nil
@@ -74,6 +139,13 @@ function ClaudeClient:run_prompt_async(prompt, opts, callback)
 				return
 			end
 
+			local tracker = resolve_budget_tracker(merged_opts)
+			local budget_err = apply_budget(tracker, parsed)
+			if budget_err then
+				callback(budget_err, nil)
+				return
+			end
+
 			callback(nil, parsed)
 		end)
 	)
@@ -90,6 +162,9 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 	stream_opts.format = "stream-json"
 	stream_opts.verbose = true
 	stream_opts.include_partial_messages = true
+	local tracker = resolve_budget_tracker(stream_opts)
+	local last_cost = nil
+	local last_session_id = nil
 
 	local err = options.validate(stream_opts)
 	if err then
@@ -101,7 +176,13 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 	local stdout = vim.loop.new_pipe(false)
 	local stderr = vim.loop.new_pipe(false)
 	local stderr_buf = {}
-	local parser = json_stream.new_line_parser(on_message, function(line, decode_err)
+	local parser = json_stream.new_line_parser(function(msg)
+		if tracker then
+			last_cost = msg.total_cost_usd or msg.cost_usd or last_cost
+			last_session_id = msg.session_id or last_session_id
+		end
+		on_message(msg)
+	end, function(line, decode_err)
 		on_error(errors.new_validation_error("Failed to parse JSON message", "stdout", {
 			line = line,
 			error = decode_err,
@@ -131,6 +212,17 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 			if code ~= 0 then
 				on_error(errors.parse(table.concat(stderr_buf, ""), code))
 				return
+			end
+
+			if tracker and last_cost then
+				local budget_err = apply_budget(tracker, {
+					total_cost_usd = last_cost,
+					session_id = last_session_id or "",
+				})
+				if budget_err then
+					on_error(budget_err)
+					return
+				end
 			end
 
 			on_complete()
@@ -199,6 +291,12 @@ function ClaudeClient:run_from_stdin(stdin, prompt, opts)
 		return nil, parse_err
 	end
 
+	local tracker = resolve_budget_tracker(merged_opts)
+	local budget_err = apply_budget(tracker, parsed)
+	if budget_err then
+		return nil, budget_err
+	end
+
 	return parsed, nil
 end
 
@@ -223,6 +321,40 @@ function ClaudeClient:continue_conversation(prompt, opts)
 	merged_opts.continue = true
 	merged_opts.resume_id = nil
 	return self:run_prompt(prompt, merged_opts)
+end
+
+---@param prompt string
+---@param opts? table
+---@param retry_policy? table
+---@return table|nil, ClaudeError|nil
+function ClaudeClient:run_with_retry(prompt, opts, retry_policy)
+	local policy = vim.tbl_extend("force", DEFAULT_RETRY_POLICY, retry_policy or {})
+	local last_err = nil
+
+	for attempt = 0, policy.max_retries do
+		local res, err = self:run_prompt(prompt, opts)
+		if not err then
+			return res, nil
+		end
+
+		last_err = err
+		if not errors.is_retryable(err) then
+			return nil, err
+		end
+
+		if attempt >= policy.max_retries then
+			break
+		end
+
+		local delay_ms = calculate_retry_delay(policy, attempt + 1, err)
+		if delay_ms > 0 then
+			vim.wait(delay_ms, function()
+				return false
+			end)
+		end
+	end
+
+	return nil, last_err
 end
 
 return {

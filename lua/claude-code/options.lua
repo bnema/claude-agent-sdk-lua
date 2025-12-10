@@ -6,12 +6,19 @@ local M = {}
 
 local DEFAULT_OPTIONS = {
 	format = "text",
+	permission_mode = "default",
 }
 
 local VALID_MODEL_ALIASES = {
 	sonnet = true,
 	opus = true,
 	haiku = true,
+}
+
+local VALID_PERMISSION_MODES = {
+	["default"] = true,
+	acceptEdits = true,
+	bypassPermissions = true,
 }
 
 local function validate_mcp_tool_name(tool)
@@ -74,8 +81,28 @@ function M.validate(opts)
 		return errors.new_validation_error("Invalid model alias", "model_alias", opts.model_alias)
 	end
 
+	if opts.permission_mode and not VALID_PERMISSION_MODES[opts.permission_mode] then
+		return errors.new_validation_error("Invalid permission mode", "permission_mode", opts.permission_mode)
+	end
+
+	if opts.permission_callback and type(opts.permission_callback) ~= "function" then
+		return errors.new_validation_error(
+			"Permission callback must be a function",
+			"permission_callback",
+			opts.permission_callback
+		)
+	end
+
 	if opts.timeout and opts.timeout < 0 then
 		return errors.new_validation_error("Timeout cannot be negative", "timeout", opts.timeout)
+	end
+
+	if opts.max_budget_usd and opts.max_budget_usd < 0 then
+		return errors.new_validation_error("Max budget cannot be negative", "max_budget_usd", opts.max_budget_usd)
+	end
+
+	if opts.budget_tracker and type(opts.budget_tracker) ~= "table" then
+		return errors.new_validation_error("Budget tracker must be a table", "budget_tracker", opts.budget_tracker)
 	end
 
 	if opts.resume_id and opts.resume_id ~= "" then

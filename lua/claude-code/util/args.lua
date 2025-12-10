@@ -41,6 +41,10 @@ function M.build(prompt, opts)
 		vim.list_extend(args, { "--permission-prompt-tool", opts.permission_tool })
 	end
 
+	if opts.permission_mode and opts.permission_mode ~= "" then
+		vim.list_extend(args, { "--permission-mode", opts.permission_mode })
+	end
+
 	if opts.resume_id and opts.resume_id ~= "" then
 		vim.list_extend(args, { "--resume", opts.resume_id })
 	elseif opts.continue then
