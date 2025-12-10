@@ -101,6 +101,20 @@ stylua lua
 luacheck lua/claude-code
 ```
 
+## Running tests
+
+Unit tests and integration tests are written with plenary:
+
+```
+# Unit/specs
+nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/plenary"
+
+# Integration (requires Claude CLI in PATH or CLAUDE_CLI_BIN)
+CLAUDE_CLI_BIN=/usr/local/bin/claude nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/plenary"
+```
+
+The integration specs will `pending` if the CLI binary is missing so they won’t fail your run.
+
 ## License
 
 MIT
