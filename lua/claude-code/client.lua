@@ -7,6 +7,7 @@ local history = require("claude-code.history")
 local options = require("claude-code.options")
 local result_parser = require("claude-code.result")
 local json_stream = require("claude-code.util.json")
+local settings = require("claude-code.settings")
 
 local DEFAULT_RETRY_POLICY = {
 	max_retries = 3,
@@ -274,6 +275,7 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 	local last_session_id = nil
 	local last_result_msg = nil
 	local aborted = false
+	local current_parent_tool_id = nil -- Track subagent context
 
 	local err = options.validate(stream_opts)
 	if err then
@@ -311,8 +313,92 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 		return true
 	end
 
+	-- Function to send control response back to CLI
+	local function send_control_response(request_id, success, data)
+		if not stdin or stdin:is_closing() then
+			return
+		end
+		local response = {
+			type = "control_response",
+			request_id = request_id,
+			response = success and { type = "success", data = data or {} } or { type = "error", error = data or "denied" },
+		}
+		local json_msg = vim.json.encode(response) .. "\n"
+		stdin:write(json_msg)
+	end
+
+	-- Permission callback for tool approval
+	local permission_callback = stream_opts.permission_callback
+	local project_settings = settings.read() -- Load project settings
+
 	local parser = json_stream.new_line_parser(function(msg)
 		if aborted then
+			return
+		end
+
+		-- Handle control requests from CLI (permission requests, etc.)
+		if msg.type == "control_request" then
+			local request_id = msg.request_id
+			local request = msg.request or {}
+			local subtype = request.subtype
+
+			if subtype == "can_use_tool" then
+				local tool_name = request.tool_name or "unknown"
+				local tool_input = request.input or {}
+
+				-- First check project settings for pre-approved/denied permissions
+				local setting_result = settings.check_permission(tool_name, tool_input, project_settings)
+				if setting_result == true then
+					-- Already allowed in settings
+					send_control_response(request_id, true, { allow = true })
+					return
+				elseif setting_result == false then
+					-- Explicitly denied in settings
+					send_control_response(request_id, true, { allow = false, reason = "Denied by project settings" })
+					return
+				end
+
+				-- Not in settings, need to ask user (if callback provided)
+				if not permission_callback then
+					-- No callback, auto-allow (but don't save to settings)
+					send_control_response(request_id, true, { allow = true })
+					return
+				end
+
+				-- Call permission callback (may be async via vim.schedule)
+				-- Callback signature: function(tool_name, tool_input, respond_fn) -> nil (async) or bool (sync)
+				-- respond_fn signature: function(allowed, save_preference, updated_input)
+				local result = permission_callback(tool_name, tool_input, function(allowed, save_preference, updated_input)
+					if allowed then
+						-- Save to settings if requested
+						if save_preference then
+							settings.add_allow(tool_name, tool_input)
+							-- Reload settings for future checks
+							project_settings = settings.read()
+						end
+						send_control_response(request_id, true, { allow = true, updatedInput = updated_input })
+					else
+						if save_preference then
+							settings.add_deny(tool_name, tool_input)
+							project_settings = settings.read()
+						end
+						send_control_response(request_id, true, { allow = false, reason = "User denied" })
+					end
+				end)
+
+				-- If callback returns immediately (sync), handle it
+				if result ~= nil then
+					if result then
+						send_control_response(request_id, true, { allow = true })
+					else
+						send_control_response(request_id, true, { allow = false, reason = "User denied" })
+					end
+				end
+				-- If nil, callback will call the async handler
+			else
+				-- Unknown control request, acknowledge
+				send_control_response(request_id, true, {})
+			end
 			return
 		end
 
@@ -325,9 +411,27 @@ function ClaudeClient:stream_prompt(prompt, opts, on_message, on_error, on_compl
 			last_result_msg = msg
 		end
 
+		-- Track parent_tool_use_id for subagent context
+		-- This identifies which tool (e.g., Task) a message belongs to
+		-- Messages with parent_tool_use_id are from subagents, not main conversation
+		local msg_parent_id = msg.parent_tool_use_id
+		if msg_parent_id then
+			current_parent_tool_id = msg_parent_id
+			msg._is_subagent = true
+		end
+
+		-- Clear subagent context when we get a message without parent_tool_use_id
+		-- This indicates we're back in the main conversation
+		if msg.type == "assistant" and not msg_parent_id and current_parent_tool_id then
+			current_parent_tool_id = nil
+		end
+
 		if msg.type == "tool_use" and plugin_manager then
 			local input = parse_tool_input(msg.tool_input or msg.message or {})
 			input.session_id = msg.session_id
+			if msg_parent_id then
+				input.parent_tool_use_id = msg_parent_id
+			end
 			local ok = invoke_plugin("on_tool_call", msg.tool_name or "", input)
 			if not ok then
 				return
